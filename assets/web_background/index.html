@@ -1,0 +1,619 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis Core</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #020203; }
+    #stage { position: absolute; inset: 0; }
+    #vignette {
+      position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(0,0,0,0.55) 75%, rgba(0,0,0,0.9) 100%);
+    }
+    #grain {
+      position: absolute; inset: -50%; pointer-events: none; opacity: 0.05;
+      background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.5) 0 1px, transparent 1px 3px);
+      animation: drift 9s linear infinite;
+    }
+    /* Red edge-glow for danger, a soft green one for safe */
+    #mood {
+      position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.35s;
+      box-shadow: inset 0 0 160px 30px var(--mood, rgba(255,40,30,0.6));
+    }
+    @keyframes drift { to { transform: translateY(3px); } }
+  </style>
+  <script src="three.min.js"></script>
+  <script src="CopyShader.js"></script>
+  <script src="LuminosityHighPassShader.js"></script>
+  <script src="EffectComposer.js"></script>
+  <script src="RenderPass.js"></script>
+  <script src="ShaderPass.js"></script>
+  <script src="UnrealBloomPass.js"></script>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="grain"></div>
+  <div id="mood"></div>
+  <div id="vignette"></div>
+
+<script>
+/*
+  JARVIS CORE: a living energy orb. Every state has its own body language:
+
+    IDLE       slow breathing; the eyes drift, glance around, blink together and sometimes wink
+    LISTENING  leans in: the shell draws inward, the eyes widen, sparkle and follow you, ripples pulse to YOUR voice
+    THINKING   neurons fire: banded particle orbits, scanning arc, tendrils, the eyes flicker
+    EXECUTING  focused work: fast rings and tendrils, steady drive
+    SPEAKING   the core ripples with Jarvis's voice and shockwaves roll out on each syllable
+    DANGER     Ultron mode: red, spiky jagged core, the eyes slant into an angry frown, heartbeat shockwaves, tremble, red edge glow
+    SAFE       all clear: happy squinting eyes, the core goes glass-smooth, a green-cyan wash, one calm halo
+    ERROR      red glitch flicker
+    MUTED      dim and asleep; the eyes nearly closed
+    CINEMATIC  pulled back for the boot UI
+
+  Python API:
+    setJarvisState(name)        base state (IDLE/LISTENING/THINKING/EXECUTING/SPEAKING/...)
+    orbMood('danger'|'safe'|'error', seconds)   temporary emotional overlay on top of the state
+    setAudioLevel(0..1)         Jarvis's voice level      setMicLevel(0..1)  your voice level
+    triggerPulse(), accelerateReactor(), setReactorSpeed(n), losePower(), dissolveReactor()
+
+  Gold literals are re-hued by ui.py to your theme colour. Red (danger) and green (safe) are fixed on purpose.
+*/
+(function () {
+  const stage = document.getElementById('stage');
+  const moodEl = document.getElementById('mood');
+  const W = () => Math.max(1, window.innerWidth);
+  const H = () => Math.max(1, window.innerHeight);
+
+  // ── palette ──
+  const C_BRIGHT = new THREE.Color(0xffbe1a);
+  const C_MID    = new THREE.Color(0xd4af37);
+  const C_DIM    = new THREE.Color(0xaa8010);
+  const C_FAINT  = new THREE.Color(0x553f05);
+  const C_HOT    = new THREE.Color(0xfff2a3);
+  const C_ALERT  = new THREE.Color(0xff2a1f);
+  const C_ALERT_HOT = new THREE.Color(0xff5a3c);
+  const C_SAFE   = new THREE.Color(0x32f5b4);
+  const C_SAFE_HOT = new THREE.Color(0xd8fff0);
+
+  // ── renderer / post ──
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+  renderer.setSize(W(), H());
+  renderer.setClearColor(0x020203, 1);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  stage.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, W() / H(), 0.1, 200);
+  camera.position.set(0, 0, 10);
+
+  const composer = new THREE.EffectComposer(renderer);
+  composer.addPass(new THREE.RenderPass(scene, camera));
+  const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(W(), H()), 0.9, 0.55, 0.22);
+  composer.addPass(bloom);
+  const gradePass = new THREE.ShaderPass({
+    uniforms: { tDiffuse: { value: null }, uAberr: { value: 0.0015 }, uGlitch: { value: 0 }, uTime: { value: 0 } },
+    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: `
+      uniform sampler2D tDiffuse; uniform float uAberr; uniform float uGlitch; uniform float uTime; varying vec2 vUv;
+      float h(float n){ return fract(sin(n) * 43758.5453); }
+      void main(){
+        vec2 uv = vUv;
+        // horizontal tearing when glitching (error / danger)
+        float band = floor(uv.y * 40.0 + floor(uTime * 18.0) * 7.0);
+        uv.x += (h(band) - 0.5) * 0.04 * uGlitch * step(0.8, h(band + 3.0));
+        vec2 d = uv - 0.5; float r = length(d);
+        vec3 col;
+        col.r = texture2D(tDiffuse, uv + d * uAberr * r * 4.0).r;
+        col.g = texture2D(tDiffuse, uv).g;
+        col.b = texture2D(tDiffuse, uv - d * uAberr * r * 4.0).b;
+        col *= 1.0 - 0.35 * smoothstep(0.45, 0.95, r);
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  });
+  composer.addPass(gradePass);
+
+  const NOISE = `
+    vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+    vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+    vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+    float snoise(vec3 v){
+      const vec2 C=vec2(1.0/6.0,1.0/3.0); const vec4 D=vec4(0.0,0.5,1.0,2.0);
+      vec3 i=floor(v+dot(v,C.yyy)); vec3 x0=v-i+dot(i,C.xxx);
+      vec3 g=step(x0.yzx,x0.xyz); vec3 l=1.0-g; vec3 i1=min(g.xyz,l.zxy); vec3 i2=max(g.xyz,l.zxy);
+      vec3 x1=x0-i1+C.xxx; vec3 x2=x0-i2+C.yyy; vec3 x3=x0-D.yyy;
+      i=mod289(i);
+      vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+      float n_=0.142857142857; vec3 ns=n_*D.wyz-D.xzx;
+      vec4 j=p-49.0*floor(p*ns.z*ns.z); vec4 x_=floor(j*ns.z); vec4 y_=floor(j-7.0*x_);
+      vec4 x=x_*ns.x+ns.yyyy; vec4 y=y_*ns.x+ns.yyyy; vec4 h=1.0-abs(x)-abs(y);
+      vec4 b0=vec4(x.xy,y.xy); vec4 b1=vec4(x.zw,y.zw);
+      vec4 s0=floor(b0)*2.0+1.0; vec4 s1=floor(b1)*2.0+1.0; vec4 sh=-step(h,vec4(0.0));
+      vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy; vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+      vec3 p0=vec3(a0.xy,h.x); vec3 p1=vec3(a0.zw,h.y); vec3 p2=vec3(a1.xy,h.z); vec3 p3=vec3(a1.zw,h.w);
+      vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+      p0*=norm.x; p1*=norm.y; p2*=norm.z; p3*=norm.w;
+      vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0); m=m*m;
+      return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+    }`;
+
+  const root = new THREE.Group();
+  scene.add(root);
+
+  // ── 1. plasma core (smooth ↔ jagged) ──
+  const coreUniforms = {
+    uTime: { value: 0 }, uAmp: { value: 0.12 }, uEnergy: { value: 0.6 }, uJag: { value: 0 }, uSmooth: { value: 0 },
+    uColA: { value: C_BRIGHT.clone() }, uColB: { value: C_HOT.clone() }, uColRim: { value: C_MID.clone() },
+  };
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(1.15, 64),
+    new THREE.ShaderMaterial({
+      uniforms: coreUniforms,
+      vertexShader: NOISE + `
+        uniform float uTime; uniform float uAmp; uniform float uJag; uniform float uSmooth;
+        varying vec3 vN; varying vec3 vView; varying float vDisp;
+        void main(){
+          float n = snoise(normal * 1.6 + vec3(0.0, uTime * 0.35, uTime * 0.2));
+          float n2 = snoise(normal * 4.0 - uTime * 0.6) * 0.35 * (1.0 - uSmooth);
+          // jagged spikes for danger: ridged high-frequency noise
+          float spikes = pow(abs(snoise(normal * 7.0 + uTime * 1.8)), 3.0) * 1.6;
+          float disp = (n + n2) * uAmp * (1.0 - 0.7 * uSmooth) + spikes * uJag;
+          vDisp = disp;
+          vec3 p = position + normal * disp;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          vN = normalize(normalMatrix * normal);
+          vView = normalize(-mv.xyz);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: `
+        uniform vec3 uColA; uniform vec3 uColB; uniform vec3 uColRim; uniform float uEnergy; uniform float uJag;
+        varying vec3 vN; varying vec3 vView; varying float vDisp;
+        void main(){
+          float fres = pow(1.0 - max(dot(vN, vView), 0.0), 2.4);
+          float veins = smoothstep(0.04, 0.16, vDisp) * 0.9;
+          vec3 inner = mix(uColA * 0.08, uColB * 0.9, clamp(veins, 0.0, 1.0)) * (1.0 - 0.45 * clamp(uJag * 3.0, 0.0, 1.0));
+          vec3 col = inner * (0.25 + uEnergy * 0.45) + uColRim * fres * (0.7 + uEnergy * 0.9);
+          float alpha = clamp(0.25 + veins * 0.5 + fres * 0.7, 0.0, 1.0);
+          gl_FragColor = vec4(col, alpha);
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    })
+  );
+  root.add(core);
+
+  // ── the eye: a pupil that looks, blinks, widens and narrows ──
+  const eyeGroup = new THREE.Group();
+  root.add(eyeGroup);
+  // Two eyes, each: glowing pupil, thin iris ring, and a tiny catch-light sparkle (the "cute" part).
+  const EYE_GAP = 0.43;
+  const EYE_MAX_R = 0.7;    // eyes never leave this radius inside the core (core radius ~1.15)
+  const eyes = [-1, 1].map(side => {
+    const g = new THREE.Group();
+    g.position.x = side * EYE_GAP;
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.14, 32, 32),
+      new THREE.MeshBasicMaterial({ color: C_HOT.clone(), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.195, 0.217, 64),
+      new THREE.MeshBasicMaterial({ color: C_MID.clone(), transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    const sparkle = new THREE.Mesh(new THREE.CircleGeometry(0.031, 16),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }));
+    sparkle.position.set(-0.045, 0.053, 0.145);
+    g.add(pupil, ring, sparkle);
+    eyeGroup.add(g);
+    return { side, g, pupil, ring, sparkle, blink: 0 };
+  });
+
+  // ── 2. inner lattice ──
+  const lattice = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.55, 2)),
+    new THREE.LineBasicMaterial({ color: C_DIM.clone(), transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  root.add(lattice);
+
+  // ── 3. particle shell ──
+  const P = 6000;
+  const pGeo = new THREE.BufferGeometry();
+  const pBase = new Float32Array(P * 3), pSeed = new Float32Array(P);
+  for (let i = 0; i < P; i++) {
+    const u = Math.random() * 2 - 1, th = Math.random() * Math.PI * 2, s = Math.sqrt(1 - u * u);
+    const r = 1.95 + (Math.random() ** 3) * 0.6;
+    pBase[i*3] = s * Math.cos(th) * r; pBase[i*3+1] = u * r; pBase[i*3+2] = s * Math.sin(th) * r;
+    pSeed[i] = Math.random();
+  }
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pBase, 3));
+  pGeo.setAttribute('aSeed', new THREE.BufferAttribute(pSeed, 1));
+  const shellUniforms = {
+    uTime: { value: 0 }, uEnergy: { value: 0.6 }, uSwirl: { value: 0.25 }, uBand: { value: 0 },
+    uPull: { value: 0 }, uTremble: { value: 0 }, uRipple: { value: 0 },
+    uCol: { value: C_BRIGHT.clone() }, uScale: { value: renderer.getPixelRatio() },
+  };
+  const shell = new THREE.Points(pGeo, new THREE.ShaderMaterial({
+    uniforms: shellUniforms,
+    vertexShader: NOISE + `
+      uniform float uTime; uniform float uEnergy; uniform float uSwirl; uniform float uBand;
+      uniform float uPull; uniform float uTremble; uniform float uRipple; uniform float uScale;
+      attribute float aSeed; varying float vA;
+      void main(){
+        vec3 p = position;
+        float lat = p.y / length(p);
+        float n = snoise(p * 0.9 + uTime * 0.25 + aSeed);
+        // thinking: latitude bands spin at different speeds, like thoughts in parallel
+        float band = 1.0 + uBand * sin(lat * 9.0 + aSeed);
+        float ang = uTime * uSwirl * (0.6 + aSeed) * band + n * 0.6;
+        float c = cos(ang), s = sin(ang);
+        p.xz = mat2(c, -s, s, c) * p.xz;
+        float r = length(p);
+        // listening: draw inward and lean toward the viewer
+        p *= 1.0 - uPull * 0.22;
+        p.z += uPull * 0.35 * (0.5 + aSeed);
+        // voice ripples travel across the shell
+        p *= 1.0 + uRipple * 0.08 * sin(r * 9.0 - uTime * 14.0);
+        p *= 1.0 + n * 0.06 * (0.5 + uEnergy);
+        // danger: tremble
+        p += uTremble * 0.05 * vec3(snoise(p * 3.0 + uTime * 20.0), snoise(p * 3.1 - uTime * 21.0), snoise(p * 2.9 + uTime * 19.0));
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        gl_PointSize = (1.2 + aSeed * 2.2) * uScale * (6.0 / -mv.z);
+        vA = (0.25 + 0.75 * smoothstep(-0.2, 0.8, n)) * (0.35 + uEnergy * 0.65);
+      }`,
+    fragmentShader: `
+      uniform vec3 uCol; varying float vA;
+      void main(){
+        float d = length(gl_PointCoord - 0.5);
+        if (d > 0.5) discard;
+        gl_FragColor = vec4(uCol, vA * smoothstep(0.5, 0.0, d));
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+  root.add(shell);
+
+  // ── 4. tendrils ──
+  const tendrils = new THREE.Group();
+  root.add(tendrils);
+  const TSEG = 28, tendrilLines = [];
+  for (let k = 0; k < 10; k++) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(TSEG * 3), 3));
+    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: C_HOT.clone(), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    line.userData = { life: 0, a: new THREE.Vector3(), b: new THREE.Vector3() };
+    tendrils.add(line); tendrilLines.push(line);
+  }
+  const randOnSphere = (r) => new THREE.Vector3(Math.random()*2-1, Math.random()*2-1, Math.random()*2-1).normalize().multiplyScalar(r);
+  const tmpV = new THREE.Vector3();
+  function updateTendril(line, dt, rate) {
+    const ud = line.userData;
+    if (ud.life <= 0) {
+      if (rate > 0 && Math.random() < dt * rate) {
+        ud.a = randOnSphere(1.2);
+        ud.b = ud.a.clone().add(randOnSphere(0.9)).normalize().multiplyScalar(1.25 + Math.random() * 0.7);
+        ud.life = 1;
+      }
+      line.material.opacity = 0; return;
+    }
+    ud.life -= dt * (2.5 + Math.random() * 2);
+    const pos = line.geometry.attributes.position.array;
+    for (let i = 0; i < TSEG; i++) {
+      const f = i / (TSEG - 1), bulge = Math.sin(f * Math.PI);
+      tmpV.copy(ud.a).lerp(ud.b, f).normalize().multiplyScalar(ud.a.length() + (ud.b.length() - ud.a.length()) * f + bulge * 0.25);
+      pos[i*3]   = tmpV.x + (Math.random() - 0.5) * 0.09 * bulge;
+      pos[i*3+1] = tmpV.y + (Math.random() - 0.5) * 0.09 * bulge;
+      pos[i*3+2] = tmpV.z + (Math.random() - 0.5) * 0.09 * bulge;
+    }
+    line.geometry.attributes.position.needsUpdate = true;
+    line.material.opacity = Math.max(0, ud.life) * 0.9;
+  }
+
+  // ── 5. HUD rings + thinking scanner ──
+  const hud = new THREE.Group();
+  scene.add(hud);
+  function ring(radius, color, opacity, ticks, tickLen, arcFrac) {
+    const g = new THREE.Group(), pts = [], segs = 256, span = Math.PI * 2 * (arcFrac || 1);
+    for (let i = 0; i <= segs; i++) { const a = (i / segs) * span; pts.push(new THREE.Vector3(Math.cos(a) * radius, Math.sin(a) * radius, 0)); }
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    if (ticks) {
+      const tp = [];
+      for (let i = 0; i < ticks; i++) {
+        const a = (i / ticks) * Math.PI * 2, L = (i % 5 === 0) ? tickLen * 2 : tickLen;
+        tp.push(new THREE.Vector3(Math.cos(a) * radius, Math.sin(a) * radius, 0), new THREE.Vector3(Math.cos(a) * (radius + L), Math.sin(a) * (radius + L), 0));
+      }
+      g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(tp), mat.clone()));
+    }
+    g.userData.mats = g.children.map(c => c.material);
+    g.userData.base = opacity;
+    return g;
+  }
+  const rings = [
+    { obj: ring(2.75, C_MID.clone(), 0.32, 120, 0.04), speed: 0.05 },
+    { obj: ring(2.95, C_DIM.clone(), 0.22, 0, 0, 0.32), speed: -0.22 },
+    { obj: ring(3.05, C_BRIGHT.clone(), 0.45, 0, 0, 0.08), speed: 0.6 },
+    { obj: ring(3.35, C_FAINT.clone(), 0.5, 360, 0.025), speed: -0.02 },
+    { obj: ring(3.6, C_DIM.clone(), 0.18, 0, 0, 0.55), speed: 0.1 },
+  ];
+  rings.forEach((r, i) => { r.obj.rotation.x = (i % 2 ? 0.08 : -0.05); hud.add(r.obj); });
+  const scanner = ring(2.45, C_HOT.clone(), 0.0, 0, 0, 0.18);
+  root.add(scanner);
+
+  // ── 6. shockwaves (speech syllables, heartbeat, safe halo, your voice) ──
+  const waves = [];
+  for (let i = 0; i < 10; i++) {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.98, 1.0, 128),
+      new THREE.MeshBasicMaterial({ color: C_BRIGHT.clone(), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    m.userData = { life: 0, from: 1, to: 3, dur: 1 };
+    scene.add(m); waves.push(m);
+  }
+  function emitWave(color, from, to, dur, strength) {
+    const w = waves.find(x => x.userData.life <= 0) || waves[0];
+    Object.assign(w.userData, { life: 1, from, to, dur, strength: strength || 0.6 });
+    w.material.color.copy(color);
+  }
+
+  // ── 7. room dust ──
+  const D = 900, dGeo = new THREE.BufferGeometry(), dPos = new Float32Array(D * 3);
+  for (let i = 0; i < D; i++) { dPos[i*3] = (Math.random()-0.5)*40; dPos[i*3+1] = (Math.random()-0.5)*24; dPos[i*3+2] = -Math.random()*30 + 2; }
+  dGeo.setAttribute('position', new THREE.BufferAttribute(dPos, 3));
+  const dust = new THREE.Points(dGeo, new THREE.PointsMaterial({ color: C_DIM.clone(), size: 0.035, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(dust);
+
+  // ── behaviour presets ──
+  //  energy amp swirl band pull jag smooth tremble scale cam ring tendrils(rate) red green glitch eyeOpen eyeSize
+  const BASE = { energy: 0.45, amp: 0.10, swirl: 0.18, band: 0, pull: 0, jag: 0, smooth: 0, tremble: 0, scale: 1.0, cam: 10.5,
+                 ring: 1.0, tendrils: 0, red: 0, green: 0, glitch: 0, eyeOpen: 1, eyeSize: 1, scan: 0 };
+  const P_ = (o) => Object.assign({}, BASE, o);
+  const PRESETS = {
+    IDLE:      P_({}),
+    LISTENING: P_({ energy: 0.7, amp: 0.12, swirl: 0.22, pull: 1, scale: 1.06, cam: 9.6, ring: 0.6, eyeSize: 1.45 }),
+    THINKING:  P_({ energy: 0.95, amp: 0.18, swirl: 0.9, band: 1, scale: 1.02, cam: 10.2, ring: 3.0, tendrils: 5, eyeSize: 0.8, scan: 1 }),
+    EXECUTING: P_({ energy: 1.1, amp: 0.2, swirl: 1.2, band: 0.5, scale: 1.05, cam: 10.0, ring: 4.0, tendrils: 7, scan: 1 }),
+    SPEAKING:  P_({ energy: 0.9, amp: 0.15, swirl: 0.35, scale: 1.08, cam: 9.4, ring: 1.3, eyeSize: 1.15 }),
+    CINEMATIC: P_({ energy: 0.55, swirl: 0.12, scale: 0.92, cam: 13.0, ring: 0.6 }),
+    MUTED:     P_({ energy: 0.15, amp: 0.05, swirl: 0.06, scale: 0.94, cam: 11.0, ring: 0.3, eyeOpen: 0.12, eyeSize: 0.7 }),
+  };
+  const MOODS = {
+    DANGER: { energy: 0.7, amp: 0.1, swirl: 0.5, jag: 0.2, tremble: 1, scale: 1.0, cam: 9.2, ring: 0.2, tendrils: 9, red: 1, glitch: 0.35, eyeOpen: 0.22, eyeSize: 1.2 },
+    ERROR:   { energy: 1.0, amp: 0.25, swirl: 1.2, jag: 0.12, tremble: 0.6, ring: 5.0, tendrils: 4, red: 1, glitch: 1, eyeOpen: 0.6 },
+    SAFE:    { energy: 0.6, amp: 0.05, swirl: 0.12, smooth: 1, scale: 1.04, cam: 10.0, ring: 0.5, green: 1, eyeSize: 1.2 },
+  };
+  PRESETS.ERROR = P_(MOODS.ERROR);   // allow setJarvisState('ERROR') too
+  PRESETS.DANGER = P_(MOODS.DANGER);
+  PRESETS.SAFE = P_(MOODS.SAFE);
+
+  let state = 'IDLE', mood = null, moodUntil = 0;
+  const cur = Object.assign({}, BASE);
+  let audio = 0, audioTarget = 0, mic = 0, micTarget = 0, pulse = 0, speedMul = 1, power = 1, dissolving = false, dissolveK = 1;
+  let lastAudioPeak = 0, lastMicPeak = 0, nextBeat = 0, prevAudio = 0, prevMic = 0;
+
+  function targetPreset() {
+    const base = PRESETS[state] || PRESETS.IDLE;
+    if (!mood) return base;
+    // a mood overrides the base, but speaking/listening still animate underneath
+    return Object.assign({}, base, MOODS[mood]);
+  }
+  window.setJarvisState = function (s) {
+    s = String(s || 'IDLE').toUpperCase();
+    if (!PRESETS[s]) s = 'IDLE';
+    if (s === 'DANGER' || s === 'SAFE' || s === 'ERROR') { window.orbMood(s, 6); return; }
+    if (s !== state && (s === 'THINKING' || s === 'SPEAKING')) pulse = 1;
+    state = s;
+    if (s !== 'SPEAKING') audioTarget = 0;
+    if (s !== 'LISTENING') micTarget = 0;
+  };
+  window.orbMood = function (m, seconds) {
+    m = String(m || '').toUpperCase();
+    if (!MOODS[m]) { mood = null; return; }
+    mood = m; moodUntil = clockNow() + (Number(seconds) || 4);
+    pulse = 1;
+    if (m === 'SAFE') { emitWave(C_SAFE, 1.2, 4.2, 1.8, 0.8); emitWave(C_SAFE, 1.0, 3.2, 2.4, 0.4); }
+    if (m === 'DANGER') nextBeat = 0;
+  };
+  // Live re-theme from the Customise panel: keep each colour's lightness/saturation, swap its hue.
+  const _themeBase = [C_BRIGHT, C_MID, C_DIM, C_FAINT, C_HOT].map(c => { const h = {}; c.getHSL(h); return h; });
+  window.setThemeColor = function (hex) {
+    try {
+      const t = {}; new THREE.Color(hex).getHSL(t);
+      [C_BRIGHT, C_MID, C_DIM, C_FAINT, C_HOT].forEach((c, i) => {
+        const b = _themeBase[i];
+        const sat = t.s < 0.15 ? b.s * t.s : b.s;          // white/grey themes desaturate
+        c.setHSL(t.h, sat, b.l);
+      });
+      pulse = 0.6;
+    } catch (e) {}
+  };
+  window.setAudioLevel = function (v) { audioTarget = Math.max(0, Math.min(1, Number(v) || 0)); };
+  window.setMicLevel = function (v) { micTarget = Math.max(0, Math.min(1, Number(v) || 0)); };
+  window.triggerPulse = function () { pulse = 1; };
+  window.accelerateReactor = function () { speedMul = 3; pulse = 1; };
+  window.setReactorSpeed = function (n) { speedMul = Math.max(0.1, Number(n) || 1); };
+  window.losePower = function () { power = 0.15; setTimeout(() => { power = 1; pulse = 1; }, 1400); };
+  window.dissolveReactor = function () { dissolving = true; };
+
+  // ── loop ──
+  const clock = new THREE.Clock();
+  const clockNow = () => clock.elapsedTime;
+  const lerp = (a, b, k) => a + (b - a) * k;
+  const colA = new THREE.Color(), colB = new THREE.Color(), colR = new THREE.Color();
+  let t = 0, mouseX = 0, mouseY = 0;
+  let gazeX = 0, gazeY = 0, gazeTX = 0, gazeTY = 0, nextGlance = 2, blink = 0, nextBlink = 3;
+  window.addEventListener('mousemove', (e) => { mouseX = e.clientX / W() - 0.5; mouseY = e.clientY / H() - 0.5; });
+
+  function frame() {
+    requestAnimationFrame(frame);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const now = clock.elapsedTime;
+    t += dt * (0.6 + 0.4 * speedMul);
+    speedMul = lerp(speedMul, 1, dt * 0.6);
+    if (mood && now > moodUntil) mood = null;
+
+    const target = targetPreset();
+    for (const k in BASE) cur[k] = lerp(cur[k], target[k], dt * (mood === 'DANGER' ? 5 : 2.5));
+
+    // voices
+    if (state === 'SPEAKING' && audioTarget === 0) {
+      const syl = Math.max(0, Math.sin(t * 9.0) * Math.sin(t * 3.1 + 1.3));
+      audio = lerp(audio, 0.25 + syl * 0.6, dt * 12);
+    } else audio = lerp(audio, audioTarget, dt * 14);
+    mic = lerp(mic, micTarget, dt * 16);
+
+    // speech shockwaves on syllable peaks
+    if (state === 'SPEAKING' && audio > 0.45 && audio > prevAudio && now - lastAudioPeak > 0.22) {
+      lastAudioPeak = now; emitWave(coreUniforms.uColA.value, 1.25, 3.2 + audio, 0.9, 0.35 + audio * 0.4);
+    }
+    // your voice: inward ripples while listening
+    if (state === 'LISTENING' && mic > 0.18 && mic > prevMic && now - lastMicPeak > 0.28) {
+      lastMicPeak = now; emitWave(coreUniforms.uColRim.value, 3.4, 1.3, 0.8, 0.25 + mic * 0.5);
+    }
+    // danger heartbeat: lub-dub
+    if (cur.red > 0.6 && mood === 'DANGER' && now > nextBeat) {
+      emitWave(C_ALERT, 1.2, 3.8, 0.9, 0.7);
+      setTimeout(() => emitWave(C_ALERT, 1.2, 3.2, 0.8, 0.45), 180);
+      nextBeat = now + 1.05;
+    }
+    prevAudio = audio; prevMic = mic;
+    pulse = Math.max(0, pulse - dt * 1.6);
+
+    const breathe = 0.5 + 0.5 * Math.sin(t * 1.1);
+    const energy = (cur.energy + audio * 0.9 + mic * 0.5 + pulse * 0.8) * power;
+
+    // colour: theme → red (danger) / green (safe)
+    colA.copy(C_BRIGHT).lerp(C_ALERT, cur.red).lerp(C_SAFE, cur.green);
+    colB.copy(C_HOT).lerp(C_ALERT_HOT, cur.red).lerp(C_SAFE_HOT, cur.green);
+    colR.copy(C_MID).lerp(C_ALERT, cur.red).lerp(C_SAFE, cur.green);
+    coreUniforms.uColA.value.copy(colA); coreUniforms.uColB.value.copy(colB); coreUniforms.uColRim.value.copy(colR);
+    shellUniforms.uCol.value.copy(colA);
+    eyes.forEach(e => { e.pupil.material.color.copy(colB); e.ring.material.color.copy(colR); });
+    lattice.material.color.copy(C_DIM).lerp(C_ALERT, cur.red * 0.8).lerp(C_SAFE, cur.green * 0.6);
+    dust.material.color.copy(lattice.material.color);
+    moodEl.style.setProperty('--mood', cur.red > cur.green ? 'rgba(255,40,30,0.55)' : 'rgba(50,245,180,0.35)');
+    moodEl.style.opacity = String(Math.max(cur.red * (0.55 + 0.45 * Math.sin(now * 6.5)), cur.green * 0.6));
+
+    // core
+    coreUniforms.uTime.value = t;
+    coreUniforms.uAmp.value = cur.amp + audio * 0.22 + mic * 0.1 + pulse * 0.15;
+    coreUniforms.uEnergy.value = energy;
+    coreUniforms.uJag.value = cur.jag * (0.7 + 0.3 * Math.sin(now * 13.0));
+    coreUniforms.uSmooth.value = cur.smooth;
+
+    // shell
+    shellUniforms.uTime.value = t;
+    shellUniforms.uEnergy.value = energy;
+    shellUniforms.uSwirl.value = cur.swirl * speedMul;
+    shellUniforms.uBand.value = cur.band;
+    shellUniforms.uPull.value = cur.pull * (0.7 + mic * 0.6);
+    shellUniforms.uTremble.value = cur.tremble;
+    shellUniforms.uRipple.value = audio * 1.2 + mic * 0.8;
+
+    if (dissolving) dissolveK = Math.max(0.001, dissolveK - dt * 0.8);
+    root.scale.setScalar(cur.scale * (1 + breathe * 0.015 + audio * 0.08 + mic * 0.04 + pulse * 0.06) * dissolveK);
+    root.rotation.y += dt * 0.12 * cur.swirl * speedMul;
+    lattice.rotation.x += dt * 0.07 * speedMul; lattice.rotation.y -= dt * 0.11 * speedMul;
+    lattice.material.opacity = 0.12 + energy * 0.14 + cur.band * 0.1;
+
+    // ── the eye: gaze, blink, widen, narrow ──
+    const attentive = state === 'LISTENING' || state === 'SPEAKING' || mood === 'DANGER';
+    if (attentive) { gazeTX = mouseX * 0.5; gazeTY = -mouseY * 0.4; }
+    else if (state === 'THINKING' || state === 'EXECUTING') {
+      // rapid saccades, like reading through thoughts
+      if (now > nextGlance) { gazeTX = (Math.random() - 0.5) * 0.5; gazeTY = (Math.random() - 0.5) * 0.35; nextGlance = now + 0.18 + Math.random() * 0.3; }
+    } else if (now > nextGlance) {
+      // idle: lazy glances, sometimes at you
+      const atYou = Math.random() < 0.35;
+      gazeTX = atYou ? mouseX * 0.5 : (Math.random() - 0.5) * 0.6;
+      gazeTY = atYou ? -mouseY * 0.4 : (Math.random() - 0.5) * 0.4;
+      nextGlance = now + 1.8 + Math.random() * 3.5;
+    }
+    gazeX = lerp(gazeX, gazeTX, dt * (attentive ? 6 : 4)); gazeY = lerp(gazeY, gazeTY, dt * (attentive ? 6 : 4));
+    // eyes sit on the root, which rotates; counter-rotate so the gaze stays screen-space
+    eyeGroup.rotation.y = -root.rotation.y;
+    eyeGroup.position.set(0, 0, 0);
+    if (now > nextBlink && state !== 'MUTED' && !mood) {
+      // mostly both eyes together; now and then a playful wink
+      const wink = state === 'IDLE' && Math.random() < 0.12;
+      if (wink) eyes[Math.random() < 0.5 ? 0 : 1].blink = 1; else eyes.forEach(e => e.blink = 1);
+      nextBlink = now + 2.5 + Math.random() * 5;
+    }
+    const blinkOf = (b) => 1 - Math.sin(Math.min(1, 1 - b) * Math.PI) * (b > 0 ? 1 : 0) * 0.92;
+    const flicker = (state === 'THINKING') ? (0.8 + 0.4 * Math.random()) : 1;
+    const es = cur.eyeSize * (0.85 + audio * 0.6 + mic * 0.4 + pulse * 0.4 + breathe * 0.06) * flicker;
+    const angry = cur.red;        // danger/error: eyes slant inward like a frown
+    const happy = cur.green;      // safe: soft happy squint, lifted a little
+    eyes.forEach(e => {
+      e.blink = Math.max(0, e.blink - dt * 7);
+      const bk = blinkOf(e.blink);
+      const open = cur.eyeOpen * bk * (1 - happy * 0.45);
+      e.g.scale.set(es * (1 + angry * 0.35), es * open, es);
+      e.g.rotation.z = e.side * angry * 0.42 - e.side * happy * 0.12;
+      // place each eye on the front of the core, clamped so it stays inside the orb
+      let ex = gazeX * 0.45 + e.side * EYE_GAP * (1 + angry * 0.1);
+      let ey = gazeY * 0.45 + happy * 0.05 - angry * 0.02;
+      const er = Math.hypot(ex, ey);
+      if (er > EYE_MAX_R) { ex *= EYE_MAX_R / er; ey *= EYE_MAX_R / er; }
+      // follow the sphere's curve so the eyes sit on its surface, slightly inside
+      e.g.position.set(ex, ey, Math.sqrt(Math.max(0, 1.0 - ex * ex - ey * ey)) * 0.92);
+      e.pupil.material.opacity = Math.min(0.75, 0.3 + energy * 0.25);
+      e.ring.material.opacity = (state === 'LISTENING' ? 0.6 : 0.15) + angry * 0.5 + mic * 0.4;
+      e.ring.rotation.z += dt * e.side * (state === 'LISTENING' ? 1.5 : 0.3);
+      // sparkle fades when angry or asleep, glints brighter while listening
+      e.sparkle.material.opacity = Math.max(0, (0.85 + (state === 'LISTENING' ? 0.15 : 0)) * (1 - angry) * (state === 'MUTED' ? 0.2 : 1) * Math.min(1, open * 1.4));
+    });
+
+    // rings: danger makes them stutter, listening makes them close in
+    rings.forEach((r, i) => {
+      const stutter = cur.red > 0.5 ? (Math.random() < 0.1 ? (Math.random() - 0.5) * 0.25 : 0) : 0;
+      r.obj.rotation.z += dt * r.speed * cur.ring * speedMul + stutter;
+      r.obj.scale.setScalar(1 - cur.pull * 0.08 * (i + 1) / rings.length + Math.sin(now * 2 + i) * 0.004);
+      const o = r.obj.userData.base * (0.55 + energy * 0.6) * power;
+      r.obj.userData.mats.forEach(m => { m.opacity = o; m.color.copy(colR); });
+    });
+    hud.scale.setScalar(1 + pulse * 0.05 + audio * 0.02);
+    hud.rotation.x = lerp(hud.rotation.x, mouseY * 0.25, dt * 2);
+    hud.rotation.y = lerp(hud.rotation.y, mouseX * 0.35, dt * 2);
+
+    // thinking scanner arc sweeps around a tilting axis
+    scanner.userData.mats.forEach(m => { m.opacity = lerp(m.opacity, cur.scan * 0.8, dt * 4); m.color.copy(colB); });
+    scanner.rotation.z += dt * 4.5 * speedMul;
+    scanner.rotation.x = Math.sin(now * 0.9) * 1.1;
+    scanner.rotation.y = -root.rotation.y + Math.cos(now * 0.7) * 0.8;
+
+    tendrilLines.forEach(l => { updateTendril(l, dt, cur.tendrils); l.material.color.copy(colB); });
+
+    // shockwaves
+    waves.forEach(w => {
+      const ud = w.userData;
+      if (ud.life <= 0) { w.material.opacity = 0; return; }
+      ud.life -= dt / ud.dur;
+      const k = 1 - Math.max(0, ud.life);
+      const eased = 1 - Math.pow(1 - k, 3);
+      w.scale.setScalar(lerp(ud.from, ud.to, eased) * root.scale.x);
+      w.material.opacity = Math.max(0, ud.life) * ud.strength;
+      w.lookAt(camera.position);
+    });
+
+    dust.rotation.y += dt * 0.004;
+    dust.position.z = (t * 0.15) % 2;
+
+    // camera: drift with the mouse, shake in danger
+    const shake = cur.tremble * 0.06;
+    camera.position.z = lerp(camera.position.z, cur.cam, dt * 1.5);
+    camera.position.x = lerp(camera.position.x, mouseX * 0.6, dt * 1.2) + (Math.random() - 0.5) * shake;
+    camera.position.y = lerp(camera.position.y, -mouseY * 0.4, dt * 1.2) + (Math.random() - 0.5) * shake;
+    camera.lookAt(0, 0, 0);
+
+    bloom.strength = (0.55 + energy * 0.55 + cur.green * 0.2 - cur.red * 0.35) * power * dissolveK;
+    gradePass.uniforms.uTime.value = now;
+    gradePass.uniforms.uAberr.value = 0.001 + audio * 0.004 + pulse * 0.006 + cur.red * 0.005;
+    gradePass.uniforms.uGlitch.value = cur.glitch * (Math.random() < 0.35 ? 1 : 0.15);
+    composer.render();
+  }
+  frame();
+
+  window.addEventListener('resize', () => {
+    camera.aspect = W() / H(); camera.updateProjectionMatrix();
+    renderer.setSize(W(), H()); composer.setSize(W(), H()); bloom.setSize(W(), H());
+  });
+})();
+</script>
+</body>
+</html>

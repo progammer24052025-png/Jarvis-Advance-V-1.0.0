@@ -1,0 +1,97 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Runtime logs and generated files
+*.log
+log.txt
+crash_log.txt
+downloads/
+memory/calendar_events.json
+config/identity.json
+config/brahma_connect/devices.json
+
+# Local secrets and environment-specific config
+config/api_keys.json
+config/app_settings.json
+config/discord_bot.json
+config/workspace_store.sqlite3*
+config/smart_home.*
+config/ppt_template_cache/
+config/.bootstrap_done
+config/.desktop_shortcut_created
+config/certs/
+memory/long_term.json
+
+# Local test/debug artifacts
+_run.out.txt
+_run.err.txt
+_discord_live_test.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS and editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Build / packaging artifacts
+build/
+dist/
+*.spec
+*.exe
+*.msi
+*.pkg
+*.toc
+*.pyz
+*.zip
+*.whl
+ 
+# Secrets
+config/.email_key
+config/email_credentials.json
+config/ig_session.json
+
+# Installer and Build Scripts
+installer/
+install_wizard.py
+build_exe.py
+build_installer_exe.py
+search_results.txt
+homescreen background/node_modules/
+homescreen background/.next/
+homescreen background/out/
+
+# Website analysis output
+analysis/
+config/guardian_audit.log
+config/telegram_bot.json
+config/routines.json
+config/security_baseline.json
+logs/
+skills/
+config/skill_approvals.json
+config/skill_audit.log
+reports/
+config/tasks/
+config/undo/
+config/session_*.json
+config/security_status.json
+
+# Owner rules (personal, signed with a key tied to this Windows account)
+config/directives.json
+config/directives.tampered-*.json
+config/.rules_key
+config/directive_audit.log
+config/leak_markers.txt
+logs/activity*.jsonl
+
+# Installer build output
+build/
+dist/
+build_freeze.log
