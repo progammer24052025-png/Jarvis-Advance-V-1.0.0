@@ -44,6 +44,11 @@ def _resolve_output_path(output_path: str | None, title: str, ext: str) -> Path:
         return path
 
     DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        from core import footprint
+        footprint.record("folder", DEFAULT_OUTPUT_DIR, "documents Jarvis made for you")
+    except Exception:
+        pass
     return DEFAULT_OUTPUT_DIR / f"{_sanitize_filename(title, 'Jarvis_ai_output')}{ext}"
 
 

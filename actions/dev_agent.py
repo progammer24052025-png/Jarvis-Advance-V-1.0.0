@@ -467,6 +467,11 @@ def _build_project(
     proj_name    = re.sub(r"[^\w\-]", "_", proj_name)
     project_dir  = PROJECTS_DIR / proj_name
     project_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        from core import footprint
+        footprint.record("folder", PROJECTS_DIR, "projects Jarvis built for you")
+    except Exception:
+        pass
 
     files        = plan.get("files", [])
     entry_point  = plan.get("entry_point", "main.py")

@@ -51,6 +51,11 @@ _SAFE_SCREENSHOT_ROOTS = (
 def _safe_screenshot_path(requested: str | None) -> Path:
     fallback = Path.home() / "Desktop" / "jarvis_screenshot.png"
     if not requested:
+        try:
+            from core import footprint
+            footprint.record("file", fallback, "screenshot")
+        except Exception:
+            pass
         return fallback
     try:
         p = Path(requested).expanduser().resolve()

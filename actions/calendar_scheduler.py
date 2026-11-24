@@ -243,6 +243,11 @@ def calendar_scheduler(
 
         desktop_ics = Path.home() / "Desktop" / "jarvis_calendar.ics"
         desktop_ics.write_text("\n".join(ics_lines), encoding="utf-8")
+        try:
+            from core import footprint
+            footprint.record("file", desktop_ics, "calendar export")
+        except Exception:
+            pass
         return f"Exported calendar events to {desktop_ics}"
 
     return f"Unknown calendar action: '{action}'."

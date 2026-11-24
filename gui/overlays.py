@@ -183,12 +183,28 @@ class CustomizeOverlay(_Overlay):
         self.body.addLayout(form)
         self.body.addWidget(kit.label("Colour changes show instantly. A new voice reconnects Jarvis for a moment.", 8, kit.MUTED))
 
+        uninstall_row = QHBoxLayout()
+        self.uninstall_btn = kit.HudButton("Uninstall Jarvis…", "bad")
+        self.uninstall_btn.setToolTip("Opens the uninstaller: you choose what goes and see the full list first.")
+        self.uninstall_btn.clicked.connect(self._open_uninstaller)
+        uninstall_row.addWidget(self.uninstall_btn)
+        uninstall_row.addStretch(1)
+        self.body.addLayout(uninstall_row)
+
         cancel = kit.HudButton("Cancel", "muted")
         cancel.clicked.connect(self._cancel)
         save = kit.HudButton("Save && apply", "accent")
         save.clicked.connect(self._save)
         self.footer(cancel, save)
         self._color = self._orig_color
+
+    def _open_uninstaller(self):
+        from core.uninstall import launch_window
+        if launch_window():
+            self._cancel()
+        else:
+            self.uninstall_btn.setText("Uninstaller not found: use Settings → Apps")
+            self.uninstall_btn.setEnabled(False)
 
     def _on_color(self, hx: str, from_text: bool = False):
         c = QColor(hx)

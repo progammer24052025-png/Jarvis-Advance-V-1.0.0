@@ -260,6 +260,11 @@ def _save_to_desktop(content: str, origin: str, destination: str) -> str:
     filepath = desktop / filename
 
     filepath.write_text(content, encoding="utf-8")
+    try:
+        from core import footprint
+        footprint.record("file", filepath, "flight search results")
+    except Exception:
+        pass
     print(f"[FlightFinder] 💾 Saved: {filepath}")
 
     try:

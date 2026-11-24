@@ -11,7 +11,7 @@ It works for **one person, you**: it obeys only you, keeps your data on your own
 
 ## Install (2 minutes)
 
-1. **Download** `Jarvis-1.0.0.msi` from the [**latest release**](../../releases/latest).
+1. **Download** `Jarvis-1.0.1.msi` from the [**latest release**](../../releases/latest).
 2. **Double-click** the file.
    - If Windows shows *"Windows protected your PC"*, click **More info → Run anyway**.
      (The installer isn't code-signed yet, so Windows doesn't recognise the publisher.)
@@ -63,11 +63,31 @@ change everything later in **Customise**.
 - Text from web pages, emails or files can never give Jarvis orders: risky actions after reading outside
   content always wait for **your** OK.
 
-## Updating and uninstalling
+## Updating
 
-- **Update:** install the newer `.msi` over the old one. Your settings and memory are kept.
-- **Uninstall:** *Settings → Apps → Installed apps → Jarvis → Uninstall*. This removes the program but
-  **keeps your data**. To remove everything, also delete the folder `%APPDATA%\Jarvis`.
+Install the newer `.msi` over the old one. Your settings and memory are kept, and nothing is cleaned up.
+
+## Uninstalling
+
+Jarvis comes with its own uninstaller. It's installed with Jarvis and removed with it, so nothing is left
+behind, not even the uninstaller. Open it any of these ways:
+
+- **Start menu → Uninstall Jarvis**
+- **Settings → Apps → Installed apps → Jarvis → Uninstall**
+- In Jarvis: **Customise → Uninstall Jarvis…**
+
+Then choose:
+
+- **Keep my data** (default): removes Jarvis everywhere on your PC: the program, shortcuts, reminders,
+  firewall rules, registry entries, cache and temporary files. Your memory, rules and settings stay in
+  `%APPDATA%\Jarvis`, so reinstalling brings everything back.
+- **Remove everything**: also erases your Jarvis data. You can **back it up first** with one click, and you
+  type `DELETE` to confirm.
+
+Before anything is removed, you see the exact list. Files Jarvis made for you on the Desktop (documents,
+projects, screenshots) are only removed if you tick them. The uninstaller only touches things Jarvis itself
+created, never other programs' files or settings. At the end it reminds you to revoke your Gemini key and,
+if you made one, delete your Telegram bot, because those live with Google and Telegram, not on your PC.
 
 ## Troubleshooting
 
@@ -105,7 +125,10 @@ any personal data, keys or tokens in the files it would ship:
 .venv\Scripts\python tools\build_installer.py
 ```
 
-The result is `dist\Jarvis-<version>.msi`. `tools\clean_room_check.py` unpacks it and checks the payload again.
+The result is `dist\Jarvis-<version>.msi`, with `Jarvis-Uninstall.exe` inside. `tools\clean_room_check.py`
+unpacks it and checks the payload again. To test the uninstaller on a clean PC, follow
+[docs/UNINSTALL_TEST_CHECKLIST.md](docs/UNINSTALL_TEST_CHECKLIST.md). `tools\jarvis_trace_check.ps1` lists any
+Jarvis traces left on the account, and changes nothing.
 
 </details>
 

@@ -101,6 +101,11 @@ def _take_screenshot() -> Path | None:
         screenshot_path = Path.home() / "Desktop" / f"jarvis_debug_{int(time.time())}.png"
         screenshot = pyautogui.screenshot()
         screenshot.save(str(screenshot_path))
+        try:
+            from core import footprint
+            footprint.record("file", screenshot_path, "debug screenshot")
+        except Exception:
+            pass
         print(f"[Code] 📸 Screenshot: {screenshot_path}")
         return screenshot_path
     except Exception as e:

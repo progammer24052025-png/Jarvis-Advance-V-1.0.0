@@ -693,6 +693,11 @@ def _schedule_daily_update(hour: int = 3, minute: int = 0) -> str:
                   "/SC", "DAILY", "/ST", f"{hour:02d}:{minute:02d}", "/F", *extra]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
+            try:
+                from core import footprint
+                footprint.record("task", task_name, "daily game update")
+            except Exception:
+                pass
             return f"Daily game update scheduled at {hour:02d}:{minute:02d}."
     return f"Scheduling failed: {result.stderr.strip()}"
 
@@ -700,6 +705,12 @@ def _schedule_daily_update(hour: int = 3, minute: int = 0) -> str:
 def _cancel_scheduled_update() -> str:
     result = subprocess.run(["schtasks", "/Delete", "/TN", "JarvisAI_GameUpdater", "/F"],
                             capture_output=True, text=True)
+    if result.returncode == 0:
+        try:
+            from core import footprint
+            footprint.forget("task", "JarvisAI_GameUpdater")
+        except Exception:
+            pass
     return "Scheduled update cancelled." if result.returncode == 0 else "No scheduled update found."
 
 

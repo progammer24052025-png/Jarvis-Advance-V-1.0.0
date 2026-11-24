@@ -7,7 +7,8 @@
 Steps (any failure stops the build):
   1. leak-scan the source files that would ship (tools/leak_scan.py)
   2. freeze with PyInstaller from an ALLOW-LIST (the same list the leak scanner uses): Jarvis.exe (the app)
-     and jarvis-python.exe (runs helper scripts), side by side in dist\\Jarvis
+     and jarvis-python.exe (runs helper scripts), side by side in dist\\Jarvis, plus Jarvis-Uninstall.exe
+     (one self-contained file, so it still runs after the rest of Jarvis is gone)
   3. leak-scan everything in dist\\Jarvis, including the compressed Python archive inside the .exe files
   4. build dist\\Jarvis-<version>.msi with the WiX Toolset (per-user install, no admin needed)
 """
@@ -30,7 +31,7 @@ from tools import leak_scan  # noqa: E402
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 APP_DIR = DIST / APP_NAME
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 OUR_PACKAGES = ["actions", "agent", "auth", "core", "dashboard", "gui", "jarvis_connect", "smart_home",
                 "plugins", "memory", "config"]
@@ -44,6 +45,13 @@ THIRD_PARTY_DATA = ["mediapipe", "certifi", "edge_tts", "duckduckgo_search", "pl
 HELPER_IMPORTS = ["requests", "bs4", "json", "csv", "sqlite3", "openpyxl", "docx", "pptx", "PIL", "reportlab",
                   "numpy", "psutil", "http.server", "urllib.request", "xml.etree.ElementTree",
                   "core.skill_forge.sandbox_runner"]
+# the uninstaller: small and self-contained (Qt widgets only)
+UNINSTALL_IMPORTS = ["core.uninstall", "core.footprint", "core.directives", "core.paths", "core.brand", "gui.kit",
+                     "psutil", "win32crypt", "winreg"]
+UNINSTALL_EXCLUDES = ["pytest", "tests", "tools", "numpy", "mediapipe", "cv2", "PIL", "tkinter", "google", "playwright",
+                      "PyQt6.QtWebEngineCore", "PyQt6.QtWebEngineWidgets", "PyQt6.QtWebChannel", "PyQt6.QtMultimedia",
+                      "PyQt6.QtNetwork", "PyQt6.QtQml", "PyQt6.QtQuick", "PyQt6.QtPdf", "PyQt6.QtSvg", "PyQt6.QtOpenGL"]
+UNINSTALL_EXE = "Jarvis-Uninstall.exe"
 
 
 def step(msg: str) -> None:
@@ -105,6 +113,14 @@ helper = EXE(pyz_b, b.scripts, [], exclude_binaries=True, name="jarvis-python", 
              upx=False, contents_directory=".")
 
 coll = COLLECT(app, a.binaries, a.datas, helper, b.binaries, b.datas, upx=False, name={APP_NAME!r})
+
+u = Analysis([{str(ROOT / "uninstaller.py")!r}], pathex=[{str(ROOT)!r}],
+             datas=[({str(ROOT / "assets" / "Jarvis_Lite_Logo.ico")!r}, "assets")],
+             hiddenimports={UNINSTALL_IMPORTS!r}, excludes={UNINSTALL_EXCLUDES!r}, noarchive=False)
+pyz_u = PYZ(u.pure)
+uninstaller = EXE(pyz_u, u.scripts, u.binaries, u.datas, [], name="Jarvis-Uninstall", console=False,
+                  icon={str(ROOT / "assets" / "Jarvis_Lite_Logo.ico")!r}, version={str(ROOT / "version.txt")!r},
+                  upx=False, runtime_tmpdir=None)
 '''
     BUILD.mkdir(exist_ok=True)
     path = BUILD / "jarvis.spec"
@@ -120,8 +136,9 @@ def freeze() -> None:
     env = dict(os.environ, JARVIS_SECRETS_MIGRATE="0")
     r = subprocess.run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
                         "--distpath", str(DIST), "--workpath", str(BUILD / "work"), str(spec)], cwd=ROOT, env=env)
-    if r.returncode != 0 or not (APP_DIR / f"{APP_NAME}.exe").exists():
+    if r.returncode != 0 or not (APP_DIR / f"{APP_NAME}.exe").exists() or not (DIST / UNINSTALL_EXE).exists():
         sys.exit("Build stopped: PyInstaller failed (see the output above).")
+    shutil.move(str(DIST / UNINSTALL_EXE), str(APP_DIR / UNINSTALL_EXE))   # installed next to Jarvis.exe
 
 
 def scan_dist() -> None:
@@ -148,8 +165,8 @@ def main() -> None:
         freeze()
         scan_dist()
     if not args.freeze:
-        if not APP_DIR.exists():
-            sys.exit("dist\\Jarvis doesn't exist yet: run without --msi first.")
+        if not (APP_DIR / UNINSTALL_EXE).exists():
+            sys.exit("dist\\Jarvis (with the uninstaller) doesn't exist yet: run without --msi first.")
         build_msi()
 
 

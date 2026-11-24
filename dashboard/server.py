@@ -191,6 +191,14 @@ def _ensure_network_access(port: int) -> None:
                 f'program="{py_exe}" enable=yes'
             )
 
+        try:  # so the uninstaller can remove exactly these rules later
+            from core import footprint
+            for rule, needed in ((port_rule, need_port), (prog_rule, need_prog)):
+                if needed:
+                    footprint.record("firewall", rule, "dashboard LAN access")
+        except Exception:
+            pass
+
         bat_body = "\r\n".join(bat_lines) + "\r\n"
         fd, bat_path = tempfile.mkstemp(suffix=".bat", prefix="Jarvis_fw_")
         try:

@@ -40,7 +40,7 @@ SHIP_FILES_EXTRA = ["memory/__init__.py", "memory/memory_manager.py", "config/mo
 SHIP_FILES = ["main.py", "ui.py", "updater.py", "discord_bot.py", "groq_client.py", "key_manager.py",
               "llm_client.py", "or_client.py", "plugin_manager.py", "workspace_store.py",
               "gesture_utils.py", "smart_home_page_new.py", "version.txt", "requirements.txt",
-              "LICENSE", "config/__init__.py", "jarvis_python.py"]
+              "LICENSE", "config/__init__.py", "jarvis_python.py", "uninstaller.py"]
 SKIP_PARTS = {"__pycache__", ".git", "node_modules"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
 BINARY_SUFFIXES = {".png", ".jpg", ".jpeg", ".ico", ".gif", ".webp", ".mp3", ".wav", ".ogg",

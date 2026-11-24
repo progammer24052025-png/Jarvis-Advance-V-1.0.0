@@ -82,6 +82,13 @@ def register() -> bool:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER,
                               rf"Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\{APP_ID}") as k:
             winreg.SetValueEx(k, "AllowContentAboveLock", 0, winreg.REG_DWORD, 1 if show_on_lock else 0)
+        try:  # tell the uninstaller exactly what was registered
+            from core import footprint
+            for key in (rf"HKCU\Software\Classes\AppUserModelId\{APP_ID}", r"HKCU\Software\Classes\jarvis",
+                        rf"HKCU\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\{APP_ID}"):
+                footprint.record("registry", key, "notifications")
+        except Exception:
+            pass
         _tag_start_menu_shortcut()
         _registered = True
         return True

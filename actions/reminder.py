@@ -154,6 +154,12 @@ except Exception:
                 pass
             return "I couldn't schedule the reminder due to a system error."
 
+        try:
+            from core import footprint
+            footprint.record("task", task_name, "reminder")
+            footprint.record("file", notify_script, "reminder script")
+        except Exception:
+            pass
         if player:
             player.write_log(f"[reminder] set for {date_str} {time_str}")
 
