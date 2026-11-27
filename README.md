@@ -1,4 +1,6 @@
-﻿# Jarvis
+﻿<p align="center"><img src="docs/images/jarvis-pet.png" width="128" alt="Orbi, the Jarvis pet"></p>
+
+# Jarvis
 
 **A personal AI assistant for Windows that you talk to like a friend.**
 *Jarvis · Developed by Rudraksh Patel*
@@ -11,7 +13,7 @@ It works for **one person, you**: it obeys only you, keeps your data on your own
 
 ## Install (2 minutes)
 
-1. **Download** `Jarvis-1.0.1.msi` from the [**latest release**](../../releases/latest).
+1. **Download** `Jarvis-1.0.2.msi` from the [**latest release**](../../releases/latest).
 2. **Double-click** the file.
    - If Windows shows *"Windows protected your PC"*, click **More info → Run anyway**.
      (The installer isn't code-signed yet, so Windows doesn't recognise the publisher.)
@@ -51,6 +53,16 @@ change everything later in **Customise**.
   *"Use Edge, not Chrome."* · *"What rules do you have?"* · *"Cancel all rules."*
 - **Stop everything:** say *"stop everything"*, press **Ctrl + Alt + Shift + X**, or send `/stop` on Telegram.
   Say *"resume"* to continue.
+- **Orbi, your desktop pet**, floats on your screen and shows what Jarvis is doing:
+
+  ![Orbi's moods](docs/images/pet-moods.png)
+
+  - it listens, thinks, works and talks with you, and sleeps during quiet hours;
+  - click it for the command bar; hover to see the current task;
+  - short reminders pop up as speech bubbles.
+
+  Change its size, motion or name in **Customise → Pet**. Hide or show it with **Ctrl + Alt + P** or by saying
+  *"hide the pet"* / *"show the pet"*. It steps aside while you play a game or present.
 - **Closing the window** keeps Jarvis running in the system tray (bottom-right). Use **Quit** in the tray menu
   to exit. Important alerts still appear as Windows notifications.
 

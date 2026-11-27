@@ -212,6 +212,26 @@ def _ours(name: str) -> bool:
     return name.replace("/", ".").split(".")[0] in OUR_TOP
 
 
+_VS_INFO = "VS_VERSION_INFO".encode("utf-16-le")
+
+
+def strip_version_credit(data: bytes) -> bytes:
+    """Blank the developer credit inside an .exe's Windows version information only (publisher /
+    copyright, written from version.txt, which is a credit file). Anywhere else it's still a leak."""
+    out = bytearray(data)
+    for credit in {DEVELOPER_NAME, DEVELOPER_NAME.upper()}:
+        name16 = credit.encode("utf-16-le")
+        i = data.find(_VS_INFO)
+        while i != -1:
+            end = i + 4096                                   # the version block is small
+            j = data.find(name16, i, end)
+            while j != -1:
+                out[j:j + len(name16)] = b"\0" * len(name16)
+                j = data.find(name16, j + len(name16), end)
+            i = data.find(_VS_INFO, i + len(_VS_INFO))
+    return bytes(out)
+
+
 def scan(paths: list[Path], root: Path, markers: list[str], built: bool = False) -> list[Hit]:
     hits: list[Hit] = []
     for p in paths:
@@ -226,9 +246,12 @@ def scan(paths: list[Path], root: Path, markers: list[str], built: bool = False)
                     hits.append(h)
         if p.suffix.lower() in BINARY_SUFFIXES:
             data = p.read_bytes()
+            if p.suffix.lower() in (".exe", ".dll"):
+                data = strip_version_credit(data)
             text = data.decode("latin-1", "ignore")
-            # look only for secrets/markers in binaries, as raw or UTF-16 text
-            text += "\n" + data.decode("utf-16-le", "ignore")
+            # look only for secrets/markers in binaries, as raw or UTF-16 text, at BOTH byte alignments
+            # (UTF-16 text can start at an odd offset; reading from byte 0 only would miss it)
+            text += "\n" + data.decode("utf-16-le", "ignore") + "\n" + data[1:].decode("utf-16-le", "ignore")
         else:
             try:
                 text = p.read_text(encoding="utf-8")

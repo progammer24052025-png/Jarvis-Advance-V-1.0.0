@@ -174,7 +174,8 @@ Status:
   - Windows Sandbox isn't available on Windows 11 Home.
   - The kit is in `dist\uninstall-test-kit`: the 1.0.1 MSI, a 1.0.2 update-test MSI,
     `tools/jarvis_trace_check.ps1` and `docs/UNINSTALL_TEST_CHECKLIST.md`.
-- **Phase 6: not started.**
+- **Phase 6: done.** README "Uninstalling" section; GitHub release v1.0.1 with `Jarvis-1.0.1.msi`
+  published, before the Phase 5 run on a clean PC.
 
 | Phase | Work | Done when |
 |---|---|---|

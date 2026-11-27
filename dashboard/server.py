@@ -665,6 +665,21 @@ class DashboardServer:
             from fastapi.responses import RedirectResponse
             return RedirectResponse(_CRYPTOJS_CDN)
 
+        # Orbi icons (made by tools/make_icons.py): only these three files, nothing else from the folder
+        _PET_IMAGES = ("favicon.png", "apple-touch-icon.png", "pet.png")
+
+        @app.get("/static/{name}")
+        async def serve_pet_image(name: str):
+            path = STATIC_DIR / name
+            if name not in _PET_IMAGES or not path.is_file():
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404)
+            return FileResponse(str(path), media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
+        @app.get("/favicon.ico")
+        async def serve_favicon():
+            return FileResponse(str(STATIC_DIR / "favicon.png"), media_type="image/png")
+
         @app.get("/login", response_class=HTMLResponse)
         async def login_page():
             return HTMLResponse(self._login_html)

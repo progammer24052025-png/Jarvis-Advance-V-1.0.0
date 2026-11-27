@@ -55,6 +55,20 @@ def test_msi_recipe_is_per_user_with_credit_and_clean_uninstall(tmp_path):
     assert wix_msi.UPGRADE_CODE in text
 
 
+def test_scanner_allows_credit_only_in_exe_version_info_and_reads_odd_utf16(tmp_path):
+    from core.brand import DEVELOPER_NAME
+    from tools import leak_scan as ls
+    name16 = DEVELOPER_NAME.encode("utf-16-le")
+    version_block = "VS_VERSION_INFO".encode("utf-16-le") + b"\0" * 40 + "CompanyName".encode("utf-16-le") + b"\0\0" + name16
+    root = tmp_path
+    ok = root / "ok.exe"
+    ok.write_bytes(b"MZ" + b"\0" * 100 + version_block + b"\0" * 64)
+    assert ls.scan([ok], root, [DEVELOPER_NAME]) == []                     # the publisher credit is fine
+    leak = root / "leak.exe"
+    leak.write_bytes(b"MZ" + b"\0" * 100 + version_block + b"\0" * 5000 + b"\x01" + name16)   # odd offset, outside
+    assert [h.kind for h in ls.scan([leak], root, [DEVELOPER_NAME])] == ["personal marker"]
+
+
 def test_msi_installs_the_uninstaller_and_routes_every_uninstall_through_it(tmp_path):
     from core.brand import COPYRIGHT, DEVELOPER_NAME
     from core import uninstall as un

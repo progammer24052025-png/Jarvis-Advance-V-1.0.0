@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Jarvis Remote</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -39,6 +41,7 @@
       letter-spacing: 3px;
       margin-bottom: 6px;
     }
+    .logo-pet { width: 44px; height: 44px; vertical-align: middle; margin-right: 10px; }
     .logo em { color: var(--accent); font-style: normal; }
     .sub {
       font-size: 11px;
@@ -135,7 +138,7 @@
 </head>
 <body>
   <div class="card" id="card">
-    <div class="logo"><em>Jarvis</em> AI</div>
+    <div class="logo"><img class="logo-pet" src="/static/pet.png" alt=""><em>Jarvis</em> AI</div>
     <div class="sub">Remote Access</div>
     <p id="reconnecting">Reconnecting…</p>
     <p class="hint">Press <strong style="color:var(--text)">Mobile Connect</strong> in the Jarvis desktop app to get a QR code or session key.</p>

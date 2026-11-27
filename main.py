@@ -1770,6 +1770,16 @@ def _is_stop_phrase(text: str) -> bool:
     return any(p in t for p in STOP_PHRASES)
 
 
+def _pet_command(text: str) -> bool:
+    """"show the pet" / "hide Orbi" (or the pet's own name): handled right here, instantly."""
+    try:
+        from gui import pet as _pet
+        action = _pet.pet_phrase(text, _pet.load_settings().get("name"))
+        return bool(action) and _pet.request(action)
+    except Exception:
+        return False
+
+
 class JarvisLive:
 
     def __init__(self, ui: JarvisUI, dashboard=None, dashboard_started: bool = False, enable_dashboard: bool = True):
@@ -1954,6 +1964,8 @@ class JarvisLive:
             pass
         if source in ("local", "voice", "telegram", "discord", "mobile") and _is_stop_phrase(text):
             self._local_stop_everything(source)
+        if source in ("local", "voice"):
+            _pet_command(text)
         if source == "clipboard":
             try:
                 from core.guardian import get_guardian
@@ -3241,6 +3253,12 @@ class JarvisLive:
                           routed=True)
             except Exception as exc:
                 print(f"[Router] toast failed: {exc}")
+        if d.hud and not d.hold and ev.kind not in attention.ASKED_KINDS:
+            try:   # a short speech bubble from the pet (it applies focus / quiet-hours / lock-screen rules itself)
+                from gui import pet as _pet
+                _pet.request("say", {"title": ev.title or "", "text": ev.text, "importance": d.importance})
+            except Exception:
+                pass
         if d.telegram:
             bridge = getattr(self, "telegram", None)
             if bridge is not None:
@@ -4026,6 +4044,7 @@ class JarvisLive:
                                 except Exception:
                                     pass
                                 self.ui.write_log(f"You: {full_in}")
+                                _pet_command(full_in)
                                 if _guardian is not None and not in_counted:
                                     _guardian.note_owner_turn(full_in, "voice")
                             in_buf = []
@@ -4464,6 +4483,15 @@ def main():
         ui._jarvis_stop_hotkey = _stop_hotkey      # keep a reference so it isn't garbage-collected
     except Exception as _hke:
         print(f"[OwnerControl] stop hotkey unavailable: {_hke}")
+    try:
+        from gui.ptt import Hotkey
+        from gui import pet as _pet
+        _pet_hotkey = Hotkey((0x11, 0x12, 0x50))            # Ctrl + Alt + P: show / hide the pet
+        _pet_hotkey.pressed.connect(lambda: _pet.request("toggle"))
+        _pet_hotkey.set_enabled(True)
+        ui._jarvis_pet_hotkey = _pet_hotkey
+    except Exception as _phk:
+        print(f"[Pet] hotkey unavailable: {_phk}")
 
     # Initialize plugin manager and load any plugins from ./plugins
     try:

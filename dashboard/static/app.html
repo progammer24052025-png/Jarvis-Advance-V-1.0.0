@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jarvis Remote</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <script src="/static/crypto.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -107,6 +109,7 @@
       text-transform: uppercase;
       color: var(--text);
     }
+    .logo-pet { width: 30px; height: 30px; vertical-align: middle; margin-right: 10px; }
     .logo em { color: var(--accent); font-style: normal; }
     .badge {
       display: inline-flex;
@@ -505,7 +508,7 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo"><em>Jarvis</em></div>
+        <div class="logo"><img class="logo-pet" src="/static/pet.png" alt=""><em>Jarvis</em></div>
         <div class="badge">Online</div>
       </div>
       <div class="nav">

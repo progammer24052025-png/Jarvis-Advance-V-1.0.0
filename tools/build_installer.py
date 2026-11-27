@@ -31,7 +31,7 @@ from tools import leak_scan  # noqa: E402
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 APP_DIR = DIST / APP_NAME
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 OUR_PACKAGES = ["actions", "agent", "auth", "core", "dashboard", "gui", "jarvis_connect", "smart_home",
                 "plugins", "memory", "config"]

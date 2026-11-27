@@ -6565,7 +6565,8 @@ class MeetingOverlay(QWidget):
         self.minimize_requested.emit()
 
 
-class FloatingLauncher(QWidget):
+class _LegacyOrbLauncher(QWidget):
+    """The old floating orb, kept as a fallback if the pet can't load (see FloatingLauncher below)."""
     single_clicked = pyqtSignal()
     double_clicked = pyqtSignal()
     action_requested = pyqtSignal(str)
@@ -6888,6 +6889,17 @@ class FloatingLauncher(QWidget):
         self._apply_state_style()
         super().leaveEvent(event)
 
+
+# The floating launcher is now Orbi, the Jarvis pet (gui/pet.py): same signals, menu and clicks.
+try:
+    from gui.pet import JarvisPet as _JarvisPet
+
+    class FloatingLauncher(_JarvisPet):
+        def __init__(self):
+            super().__init__(accent=lambda: C.PRI)
+except Exception as _pet_exc:                      # never lose the launcher over a drawing problem
+    print(f"[UI] pet unavailable, using the classic orb: {_pet_exc}")
+    FloatingLauncher = _LegacyOrbLauncher
 
 
 class FloatingGestureCard(QWidget):
@@ -7222,8 +7234,14 @@ class MainWindow(QMainWindow):
             names = {"assistant": identity.get_assistant_name() or "Jarvis", "owner": identity.get_owner_name() or ""}
         except Exception:
             names = {"assistant": "Jarvis", "owner": ""}
+        try:
+            from gui.pet import load_settings as _pet_settings
+            pet_cfg = _pet_settings()
+        except Exception:
+            pet_cfg = {}
         ov = CustomizeOverlay(self.centralWidget(), {"color": kit.accent_hex(), "voice": settings.get("voice_name") or "Charon",
-                                                    "push_to_talk": settings.get("push_to_talk", False), **names})
+                                                    "push_to_talk": settings.get("push_to_talk", False), "pet": pet_cfg,
+                                                    **names})
         ov.preview_color.connect(self._preview_theme)
         ov.applied.connect(self._apply_customise)
         ov.closed.connect(ov.deleteLater)
@@ -7238,6 +7256,13 @@ class MainWindow(QMainWindow):
         old_voice = self._read_app_settings().get("voice_name") or "Charon"
         self._preview_theme(data["color"])
         self._write_app_settings({"app_theme": data["color"], "voice_name": data["voice"], "push_to_talk": data["push_to_talk"]})
+        if data.get("pet"):
+            try:
+                from gui import pet as _pet
+                if not _pet.request("settings", data["pet"]):      # no pet on screen yet: just save
+                    _pet.save_settings(data["pet"])
+            except Exception as exc:
+                print(f"[UI] pet settings failed: {exc}")
         try:
             from core.identity import identity
             identity.set_assistant_name(data["assistant"])
@@ -11262,6 +11287,8 @@ class JarvisUI:
         self._launcher.double_clicked.connect(self._show_control_panel)
         self._launcher.action_requested.connect(self._handle_launcher_action)
         self._launcher.position_changed.connect(self._save_launcher_position)
+        if hasattr(self._launcher, "attach_window"):    # the pet listens for mic / voice / safety holds
+            self._launcher.attach_window(self._win)
         self._command_bar.submitted.connect(self._submit_command)
         self._command_bar.attach_clicked.connect(self._browse_attachment)
         self._command_bar.mic_clicked.connect(self._toggle_mute)
@@ -11440,6 +11467,14 @@ class JarvisUI:
         }.get(state, "Ready")
         try:
             self._launcher.set_state(state, detail)
+        except Exception:
+            pass
+        try:   # the tray icon is Orbi too, with a small badge: busy / muted / alert
+            from gui.pet_icons import tray_icon, tray_state
+            ts = tray_state(state)
+            if getattr(self, "_tray_icon_state", None) != ts:
+                self._tray_icon_state = ts
+                self._tray.setIcon(tray_icon(ts))
         except Exception:
             pass
 
@@ -11635,8 +11670,8 @@ class JarvisUI:
         startup_action = menu.addAction("Show Workspace On Startup")
         startup_action.setCheckable(True)
         startup_action.setChecked(bool(self._load_app_settings().get("show_workspace_on_startup", False)))
-        show_icon_action = menu.addAction("Show Floating Icon")
-        hide_icon_action = menu.addAction("Hide Floating Icon")
+        show_icon_action = menu.addAction("Show Pet")
+        hide_icon_action = menu.addAction("Hide Pet  (Ctrl+Alt+P)")
         startwin_action = menu.addAction("Start with Windows")
         startwin_action.setCheckable(True)
         try:
@@ -11649,12 +11684,21 @@ class JarvisUI:
         restart_action = menu.addAction("Restart")
         quit_action = menu.addAction("Quit")
 
+        def _pet(action):
+            try:
+                from gui import pet as _p
+                if _p.request(action):
+                    return
+            except Exception:
+                pass
+            self._show_floating_icon() if action == "show" else self._launcher.hide()
+
         open_app_action.triggered.connect(self.show_main)
         open_action.triggered.connect(self._show_workspace_sidebar)
         close_action.triggered.connect(self._close_workspace_sidebar)
         startup_action.triggered.connect(lambda: self._toggle_workspace_on_startup(startup_action.isChecked()))
-        show_icon_action.triggered.connect(self._show_floating_icon)
-        hide_icon_action.triggered.connect(self._hide_launcher_with_protection)
+        show_icon_action.triggered.connect(lambda: _pet("show"))
+        hide_icon_action.triggered.connect(lambda: _pet("hide"))
         restart_action.triggered.connect(self._restart_app)
         quit_action.triggered.connect(self._real_quit)
         return menu
@@ -12856,6 +12900,8 @@ class JarvisUI:
         self._launcher.double_clicked.connect(self._show_control_panel)
         self._launcher.action_requested.connect(self._handle_launcher_action)
         self._launcher.position_changed.connect(self._save_launcher_position)
+        if hasattr(self._launcher, "attach_window"):    # the pet listens for mic / voice / safety holds
+            self._launcher.attach_window(self._win)
         self._command_bar.submitted.connect(self._submit_command)
         self._command_bar.attach_clicked.connect(self._browse_attachment)
         self._command_bar.mic_clicked.connect(self._toggle_mute)
@@ -13035,6 +13081,14 @@ class JarvisUI:
         }.get(state, "Ready")
         try:
             self._launcher.set_state(state, detail)
+        except Exception:
+            pass
+        try:   # the tray icon is Orbi too, with a small badge: busy / muted / alert
+            from gui.pet_icons import tray_icon, tray_state
+            ts = tray_state(state)
+            if getattr(self, "_tray_icon_state", None) != ts:
+                self._tray_icon_state = ts
+                self._tray.setIcon(tray_icon(ts))
         except Exception:
             pass
 
@@ -13230,8 +13284,8 @@ class JarvisUI:
         startup_action = menu.addAction("Show Workspace On Startup")
         startup_action.setCheckable(True)
         startup_action.setChecked(bool(self._load_app_settings().get("show_workspace_on_startup", False)))
-        show_icon_action = menu.addAction("Show Floating Icon")
-        hide_icon_action = menu.addAction("Hide Floating Icon")
+        show_icon_action = menu.addAction("Show Pet")
+        hide_icon_action = menu.addAction("Hide Pet  (Ctrl+Alt+P)")
         startwin_action = menu.addAction("Start with Windows")
         startwin_action.setCheckable(True)
         try:
@@ -13244,12 +13298,21 @@ class JarvisUI:
         restart_action = menu.addAction("Restart")
         quit_action = menu.addAction("Quit")
 
+        def _pet(action):
+            try:
+                from gui import pet as _p
+                if _p.request(action):
+                    return
+            except Exception:
+                pass
+            self._show_floating_icon() if action == "show" else self._launcher.hide()
+
         open_app_action.triggered.connect(self.show_main)
         open_action.triggered.connect(self._show_workspace_sidebar)
         close_action.triggered.connect(self._close_workspace_sidebar)
         startup_action.triggered.connect(lambda: self._toggle_workspace_on_startup(startup_action.isChecked()))
-        show_icon_action.triggered.connect(self._show_floating_icon)
-        hide_icon_action.triggered.connect(self._hide_launcher_with_protection)
+        show_icon_action.triggered.connect(lambda: _pet("show"))
+        hide_icon_action.triggered.connect(lambda: _pet("hide"))
         restart_action.triggered.connect(self._restart_app)
         quit_action.triggered.connect(self._real_quit)
         return menu

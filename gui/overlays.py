@@ -180,6 +180,31 @@ class CustomizeOverlay(_Overlay):
         self.ptt.setStyleSheet("QCheckBox { color: #c9d0dc; } QCheckBox::indicator { width: 16px; height: 16px; }")
         self.ptt.setChecked(bool(current.get("push_to_talk")))
         form.addWidget(self.ptt, 3, 0, 1, 2)
+
+        # the desktop pet
+        pet = current.get("pet") or {}
+        form.addWidget(kit.label("Pet", 8.5, kit.MUTED), 4, 0)
+        pet_row = QHBoxLayout()
+        self.pet_on = QCheckBox("Show on the desktop")
+        self.pet_on.setStyleSheet("QCheckBox { color: #c9d0dc; } QCheckBox::indicator { width: 16px; height: 16px; }")
+        self.pet_on.setChecked(bool(pet.get("enabled", True)))
+        self.pet_size = QComboBox()
+        self.pet_size.setStyleSheet(_COMBO_CSS)
+        for label, key in (("Small", "small"), ("Medium", "medium"), ("Large", "large")):
+            self.pet_size.addItem(label, key)
+        self.pet_size.setCurrentIndex(max(0, self.pet_size.findData(pet.get("size", "medium"))))
+        self.pet_motion = QComboBox()
+        self.pet_motion.setStyleSheet(_COMBO_CSS)
+        self.pet_motion.addItem("Lively", "lively")
+        self.pet_motion.addItem("Calm", "calm")
+        self.pet_motion.setCurrentIndex(max(0, self.pet_motion.findData(pet.get("motion", "lively"))))
+        self.pet_name = kit.HudInput("Orbi")
+        self.pet_name.setMaxLength(20)
+        self.pet_name.setText(pet.get("name", "Orbi"))
+        self.pet_name.setToolTip("Your pet's name (you can also say “hide <name>” / “show <name>”)")
+        for w in (self.pet_on, self.pet_size, self.pet_motion, self.pet_name):
+            pet_row.addWidget(w)
+        form.addLayout(pet_row, 4, 1)
         self.body.addLayout(form)
         self.body.addWidget(kit.label("Colour changes show instantly. A new voice reconnects Jarvis for a moment.", 8, kit.MUTED))
 
@@ -224,7 +249,10 @@ class CustomizeOverlay(_Overlay):
     def _save(self):
         self.applied.emit({"color": self._color, "assistant": self.asst.text().strip() or "Jarvis",
                            "owner": self.owner.text().strip(), "voice": self.voice.currentData(),
-                           "push_to_talk": self.ptt.isChecked()})
+                           "push_to_talk": self.ptt.isChecked(),
+                           "pet": {"enabled": self.pet_on.isChecked(), "size": self.pet_size.currentData(),
+                                   "motion": self.pet_motion.currentData(),
+                                   "name": self.pet_name.text().strip() or "Orbi"}})
         self._orig_color = self._color
         self.close_overlay()
 
